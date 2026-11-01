@@ -10,4 +10,7 @@ down:
 test:
 	go test -race ./...
 
+generate:
+	go generate  ./...
+
 .PHONY: run up down test
