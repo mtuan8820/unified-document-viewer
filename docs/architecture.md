@@ -71,7 +71,7 @@ sequenceDiagram
           Note over Agg,Ex2: timeout 2s
           Agg->>DB: get snapshot
           alt got data
-	          DB-->>Agg: documents (STALE, asOf)
+	          DB-->>Agg: documents (STALE, fetched_at)
           else not found
 	          DB-->>Agg: not found → status TIMEOUT
           end

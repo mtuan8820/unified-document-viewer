@@ -42,9 +42,12 @@ Unified Document Viewer - fetch data from 2 external system API, merge and retur
   other source's documents and reports each source's status (`ok`, `stale`, `timeout`, `error`).
   It returns 502 only when no data is available from either source.
 - **Snapshot fallback:** every successful fetch is saved to Postgres. If a source later fails,
-  the saved copy is returned and marked `stale` with its timestamp, but only if it is less
-  than 30 days old (configurable via `SNAPSHOT_MAX_AGE`).
-- **Sorting:** by document name by default; by date optionally.
+  the saved copy is returned and marked `stale`, but only if it is less than 30 days old
+  (configurable via `SNAPSHOT_MAX_AGE`).
+- **Two timestamps, two questions:** each document has `updated_at` (when it last changed in
+  its source system); each source status has `fetched_at` (how fresh that source's data is in
+  this response: now, cache time, or snapshot time).
+- **Sorting:** by document title by default; by `updated_at` optionally.
 
 See [docs/architecture.md](docs/architecture.md) for diagrams and details.
 

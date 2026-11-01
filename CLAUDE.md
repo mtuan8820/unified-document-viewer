@@ -40,11 +40,12 @@ make test                    # go test -race ./...
 
 ## What the service does
 
-`GET /vehicles/{vin}/documents?sort=name|date&order=asc|desc&page=&size=` returns one merged, paginated list of documents for a VIN from two mocked external systems — **sales** and **service** — plus a per-source status. Contract is being written in `api/openapi.yaml` (OpenAPI 3.0.3, for oapi-codegen; avoid 3.1-only syntax like `type: [string, "null"]`).
+`GET /vehicles/{vin}/documents?sort=title|updated_at&order=asc|desc&page=&size=` returns one merged, paginated list of documents for a VIN from two mocked external systems — **sales** and **service** — plus a per-source status. Contract is being written in `api/openapi.yaml` (OpenAPI 3.0.3, for oapi-codegen; avoid 3.1-only syntax like `type: [string, "null"]`).
 
-Response shape: `{data: [Document], total_doc, page, has_next, status: [{source, status, as_of?}]}`.
-- `Document`: `source_id` (string), `source` (`sales|service`), `name`, `date`, `type`. A document is identified by the pair `(source_id, source)` — ids can collide across systems.
-- Per-source `status`: `ok` (fresh), `stale` (upstream failed, served from snapshot, includes `as_of`), `timeout`, `error` (5xx/DNS/conn refused).
+Response shape: `{data: [Document], total_doc, page, has_next, status: [{source, status, fetched_at?}]}`.
+- `Document`: `document_id` (string), `source` (`sales|service`), `title`, `updated_at`, `type`. A document is identified by the pair `(document_id, source)` — ids can collide across systems.
+- `Document.updated_at` comes from the upstream system (when the document last changed). `SourceStatus.fetched_at` is set by our backend whenever a source returned data: now (fresh), cache time (Redis hit), or snapshot time (`stale`); omitted for `timeout`/`error`. Don't conflate the two.
+- Per-source `status`: `ok` (fresh or cache), `stale` (upstream failed, served from snapshot), `timeout`, `error` (5xx/DNS/conn refused).
 - 200 if any source yields data (or both succeed with zero docs); 400 invalid VIN; 502 only when both sources fail and no usable snapshot exists.
 
 ## Architecture rules.

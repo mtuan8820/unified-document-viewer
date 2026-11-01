@@ -1,0 +1,89 @@
+openapi: 3.0.3
+
+info:
+  title: Unified Document Viewer API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+    description: Local (docker compose)
+paths:
+  /vehicles/{vin}/documents:
+    get:
+      summary: List documents for a vehicle from all sources
+      operationId: fetchVehicleDocuments
+      security: []
+      parameters:
+        - { name: vin, in: path, required: true, schema: { type: string, minLength: 17, maxLength: 17 } }
+        - { name: sort, in: query, schema: { type: string, enum: [title, updated_at], default: title } }
+        - { name: order, in: query, schema: { type: string, enum: [asc, desc], default: asc } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200": 
+          description: A merged list of documents with each source's status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DocumentListResponse' }
+        "400":
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "502":
+          description: All upstreams down and no snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  schemas:
+    Source: 
+      type: string
+      enum: [sales, service]
+    Document: 
+      required: [document_id, source, title, updated_at, type]
+      properties:
+        document_id:
+          type: string
+        title:
+          type: string
+          minLength: 1
+        updated_at:
+          type: string
+          format: date-time
+          description: When the document was last modified in its source system
+        type:
+          type: string
+          minLength: 1
+        source: { $ref: '#/components/schemas/Source' }
+  
+    SourceStatus:
+      required: [source, status]
+      properties:
+        source: { $ref: '#/components/schemas/Source' }
+        status: 
+          type: string
+          enum:
+            - ok
+            - stale
+            - timeout
+            - error
+        fetched_at:
+          type: string
+          format: date-time
+          description: When this source's data was fetched from upstream (cache/snapshot time if not fresh). Omitted when no data was returned (timeout/error).
+    
+    DocumentListResponse:
+      required: [data, total_doc, page, has_next, status]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Document'}}
+        total_doc: { type: integer}
+        page: { type: integer}
+        has_next: { type: boolean}
+        status: { type: array, items: { $ref: '#/components/schemas/SourceStatus' } }
+    
+    Error:
+      required: [error]
+      properties:
+        error: { type: string }
+      
