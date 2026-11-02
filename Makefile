@@ -11,6 +11,12 @@ test:
 	go test -race ./...
 
 generate:
-	go generate  ./...
+	go generate ./...
 
-.PHONY: run up down test
+mock-sales:
+	go run ./mocks/sales
+
+mock-service:
+	go run ./mocks/service
+
+.PHONY: run up down test generate mock-sales mock-service
