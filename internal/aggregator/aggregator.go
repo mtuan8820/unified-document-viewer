@@ -1,9 +1,12 @@
 package aggregator
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
+	"strings"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -117,7 +120,7 @@ func (a *Aggregator) fetchDataFromSingleSource(ctx context.Context, vin string, 
 	return SourceResult{nil, SourceStatus{Source: sourceName, Status: status}}
 }
 
-func (a *Aggregator) GetDocuments(ctx context.Context, vin string) (Result, error) {
+func (a *Aggregator) GetDocuments(ctx context.Context, vin string, query Query) (Result, error) {
 	var group errgroup.Group
 
 	results := make([]SourceResult, len(a.Sources))
@@ -144,9 +147,57 @@ func (a *Aggregator) GetDocuments(ctx context.Context, vin string) (Result, erro
 		}
 	}
 
-	result := Result{Documents: ret, Statuses: sourcesStatus}
+	// Compare by the requested field first; on a tie, fall back to the
+	// unique key (source, document_id) so the order is deterministic and
+	// pagination never repeats or skips a document.
+	sortFunc := func(x, y Document) int {
+		var primary int
+		if query.Sort == SortByUpdatedAt {
+			primary = x.UpdatedAt.Compare(y.UpdatedAt)
+		} else {
+			primary = strings.Compare(x.Title, y.Title)
+		}
+		return cmp.Or(
+			primary,
+			strings.Compare(string(x.Source), string(y.Source)),
+			strings.Compare(x.ID, y.ID),
+		)
+	}
+
+	// Sort
+	if query.Order == OrderDesc {
+		slices.SortFunc(ret, reverse(sortFunc))
+
+	} else {
+		slices.SortFunc(ret, sortFunc)
+	}
+
+	// Pagination
+	total := len(ret)
+	size := query.Size
+	if size <= 0 {
+		size = 20
+	}
+	page := max(query.Page, 1)
+
+	start := min((page-1)*size, total) // out-of-range page → empty slice
+	end := min(start+size, total)
+
+	result := Result{
+		Documents: ret[start:end],
+		Total:     total,
+		Page:      page,
+		HasNext:   end < total,
+		Statuses:  sourcesStatus,
+	}
 	if len(a.Sources) > 0 && !anyUsable {
 		return result, ErrAllSourcesFailed
 	}
 	return result, nil
+}
+
+func reverse[T any](f func(a, b T) int) func(a, b T) int {
+	return func(a, b T) int {
+		return -f(a, b) // Inverts -1 to 1, and 1 to -1
+	}
 }

@@ -240,7 +240,7 @@ func TestGetDocuments(t *testing.T) {
 			}
 
 			before := time.Now()
-			got, err := agg.GetDocuments(context.Background(), testVIN)
+			got, err := agg.GetDocuments(context.Background(), testVIN, Query{Sort: SortByTitle, Order: OrderAsc})
 			after := time.Now()
 
 			if !errors.Is(err, tt.wantErr) {
