@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -27,16 +28,52 @@ var _ api.ServerInterface = (*Handler)(nil)
 func (h *Handler) FetchVehicleDocuments(c *gin.Context, vin string, params api.FetchVehicleDocumentsParams) {
 	query, err := queryFromParams(params)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, api.Error{Error: err.Error()})
 		return
 	}
 
-	docs, err := h.agg.GetDocuments(c.Request.Context(), vin, query)
-	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+	result, err := h.agg.GetDocuments(c.Request.Context(), vin, query)
+	if errors.Is(err, aggregator.ErrAllSourcesFailed) {
+		c.JSON(http.StatusBadGateway, api.Error{Error: "all document sources are unavailable"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"data": docs})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, api.Error{Error: err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, toResponse(result))
+}
+
+// toResponse maps the aggregator's Result to the generated API type.
+func toResponse(result aggregator.Result) api.DocumentListResponse {
+	// make, not nil, so an empty page is encoded as [] rather than null.
+	docs := make([]api.Document, 0, len(result.Documents))
+	for _, d := range result.Documents {
+		docs = append(docs, api.Document{
+			DocumentId: d.ID,
+			Source:     api.Source(d.Source),
+			Title:      d.Title,
+			Type:       d.Type,
+			UpdatedAt:  d.UpdatedAt,
+		})
+	}
+
+	statuses := make([]api.SourceStatus, 0, len(result.Statuses))
+	for _, s := range result.Statuses {
+		statuses = append(statuses, api.SourceStatus{
+			Source:    api.Source(s.Source),
+			Status:    api.SourceStatusStatus(s.Status),
+			FetchedAt: s.FetchedAt, // nil for timeout/error, omitted in JSON
+		})
+	}
+
+	return api.DocumentListResponse{
+		Data:     docs,
+		TotalDoc: result.Total,
+		Page:     result.Page,
+		HasNext:  result.HasNext,
+		Status:   statuses,
+	}
 }
 
 // queryFromParams applies the API defaults and validates the values,
