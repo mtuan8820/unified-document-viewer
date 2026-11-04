@@ -11,7 +11,7 @@ Unified Document Viewer - fetch data from 2 external system API, merge and retur
 
 ## Scope
 
-**In scope**
+**In scope**  
 - Backend API: `GET /vehicles/{vin}/documents` returns a merged, sorted, paginated list of
   document metadata from the Sales and Service systems, with the status of each source.
 - Two mock servers simulating the Sales and Service System APIs (can simulate delay and errors).
@@ -73,6 +73,63 @@ See [docs/architecture.md](docs/architecture.md) for diagrams and details.
 - Go
 - make
 
+- [golang-migrate CLI](https://github.com/golang-migrate/migrate/tree/master/cmd/migrate) (for `make migrate`)
+
 ### Running the project
 
+Each step below runs in its own terminal unless noted.
+
+1. **Start Redis, Postgres and Jaeger** (runs in the background):
+   ```bash
+   make up
+   ```
+2. **Create the database table:**
+   ```bash
+   make migrate
+   ```
+3. **Start the two mock systems:**
+   ```bash
+   make mock-sales     # Sales System API on :8081
+   make mock-service   # Service System API on :8082
+   ```
+4. **Start the API server:**
+   ```bash
+   make run            # listens on :8080
+   ```
+5. **Try it out:** open Swagger UI at <http://localhost:8080/docs>, or call the API directly:
+   ```bash
+   curl "http://localhost:8080/vehicles/1HGCM82633A004352/documents?sort=updated_at&order=desc&page=1&size=10"
+   ```
+
+To stop the containers: `make down`. To run the tests: `make test`.
+
+### Sample VINs
+
+| VIN                 | Sales       | Service     | What it shows                                   |
+|---------------------|-------------|-------------|-------------------------------------------------|
+| `1HGCM82633A004352` | 3 documents | 3 documents | Merged list; ID `1001` exists in both systems   |
+| `5YJSA1E26HF000337` | not found   | 2 documents | Documents from one source only                  |
+| `3VWFE21C04M000001` | 0 documents | not found   | Known vehicle with no documents                 |
+
+### Configuration
+
+The server reads these environment variables. The defaults match a local setup, so nothing
+needs to be set to run it. `.env.example` lists them all, but it is not loaded automatically;
+export the values you want to change, e.g. `UPSTREAM_TIMEOUT=500ms make run`.
+
+| Variable               | Default                                                         | Purpose                                         |
+|------------------------|-----------------------------------------------------------------|-------------------------------------------------|
+| `HTTP_ADDR`            | `:8080`                                                         | Address the API listens on                      |
+| `DATABASE_URL`         | `postgres://app:app@localhost:5432/documents?sslmode=disable`   | Postgres for snapshots (also used by `make migrate`) |
+| `REDIS_ADDR`           | `localhost:6379`                                                | Redis cache                                     |
+| `SALES_API_URL`        | `http://localhost:8081`                                         | Sales System API                                |
+| `SERVICE_API_URL`      | `http://localhost:8082`                                         | Service System API                              |
+| `UPSTREAM_TIMEOUT`     | `2s`                                                            | Total time per source, including retries        |
+| `UPSTREAM_RETRIES`     | `1`                                                             | Extra attempts after the first call (0 = none)  |
+| `UPSTREAM_RETRY_DELAY` | `200ms`                                                         | Wait between attempts                           |
+| `SNAPSHOT_MAX_AGE`     | `720h`                                                          | Oldest snapshot that may be served as `stale`   |
+| `LOG_LEVEL`            | `info`                                                          | `debug`, `info`, `warn` or `error`              |
+
+If Redis or Postgres is not running, the server still starts and logs a warning: requests skip
+the cache, and the snapshot fallback is unavailable.
 
