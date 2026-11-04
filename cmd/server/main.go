@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/mtuan8820/unified-document-viewer/api"
 	"github.com/mtuan8820/unified-document-viewer/internal/adapters"
 	"github.com/mtuan8820/unified-document-viewer/internal/aggregator"
 	"github.com/mtuan8820/unified-document-viewer/internal/cache"
 	"github.com/mtuan8820/unified-document-viewer/internal/config"
 	"github.com/mtuan8820/unified-document-viewer/internal/httpapi"
+	"github.com/mtuan8820/unified-document-viewer/internal/snapshot"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -40,6 +42,23 @@ func main() {
 
 	redisCache := cache.New(redisClient, 5*time.Minute)
 
+	// init postgres pool. pgxpool.New only parses the URL; it connects lazily.
+	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pool.Close()
+
+	// Same idea as redis: warn, don't exit. Snapshot errors are logged by the
+	// aggregator and the source falls back to timeout/error status.
+	pingCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	if err := pool.Ping(pingCtx); err != nil {
+		logger.Warn("postgres unavailable at startup, snapshot fallback will not work", "error", err)
+	}
+	cancel()
+
+	snapshotStore := snapshot.New(pool)
+
 	// One client shared by both adapters (safe for concurrent use).
 	// No Timeout here: the aggregator's per-source context sets the deadline.
 	client := &http.Client{}
@@ -47,7 +66,7 @@ func main() {
 	agg := &aggregator.Aggregator{
 		Logger:         logger,
 		Cache:          redisCache,
-		Snapshot:       nil, // TODO: Postgres snapshot store
+		Snapshot:       snapshotStore,
 		SnapshotMaxAge: cfg.SnapshotMaxAge,
 		Timeout:        cfg.Upstream.Timeout,
 		Retries:        cfg.Upstream.Retries,

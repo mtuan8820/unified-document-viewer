@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS snapshot;
+DROP TYPE IF EXISTS source_name;
